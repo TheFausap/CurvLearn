@@ -8,6 +8,7 @@ difficulties:
 kappa_grid: [-2.0, -1.0, -0.5, 0.0, 0.5]
 seeds: 3
 emb_scale: 1.0
+attention_modes: [geodesic, gyro]   # geodesic: curvature in scores; gyro: hyperbolic aggregation
 
 model:
   d_model: 32          # small on purpose: exposes hyperbolic's low-dim tree-packing advantage

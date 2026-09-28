@@ -79,6 +79,36 @@ def test_self_distance_gradient_finite():
         assert torch.isfinite(x.grad).all(), (kval, x.grad)
 
 
+def test_midpoint_flat_limit():
+    # gyromidpoint at k->0 is the Euclidean weighted mean
+    torch.manual_seed(0)
+    pts = torch.randn(1, 5, 3) * 0.2               # (B, T, D)
+    w = torch.rand(1, 2, 5)                          # (B, Q, T)
+    w = w / w.sum(-1, keepdim=True)
+    m = G.weighted_midpoint(pts, w, torch.tensor(1e-9))
+    eucl = torch.matmul(w, pts)
+    assert torch.allclose(m, eucl, atol=1e-4), (m, eucl)
+
+
+def test_midpoint_idempotent():
+    # all mass on copies of one point -> that point, at any curvature
+    for kval in (-2.0, -1.0, -0.3, 0.0, 0.5):
+        p = torch.tensor([[[0.2, -0.1, 0.05]]]).repeat(1, 4, 1)  # (1,4,3) identical
+        w = torch.rand(1, 1, 4); w = w / w.sum(-1, keepdim=True)
+        m = G.weighted_midpoint(p, w, torch.tensor(kval))
+        assert torch.allclose(m[0, 0], p[0, 0], atol=1e-4), (kval, m)
+
+
+def test_midpoint_matches_reference():
+    import curvlearn.geometry_ref as R
+    pts = [[0.1, 0.2], [-0.3, 0.05], [0.15, -0.1]]
+    w = [0.5, 0.3, 0.2]
+    for kval in (-2.0, -1.0, -0.3, 0.5):
+        ref = R.weighted_midpoint(pts, w, kval)
+        got = G.weighted_midpoint(torch.tensor([pts]), torch.tensor([[w]]), torch.tensor(kval))
+        assert torch.allclose(got[0, 0], torch.tensor(ref), atol=1e-4), (kval, got, ref)
+
+
 def test_expmap_gradient_finite_all_curvatures():
     # exp_0 runs project(); a torch.where(...,inf) there used to NaN the gradient for k>=0.
     # Check finite grads across hyperbolic, flat, and spherical curvatures.

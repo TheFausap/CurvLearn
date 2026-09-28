@@ -49,7 +49,8 @@ companion design memo (`tunable_curvature_memo.md`, shared alongside this repo).
 |---|---|---|
 | **A** | Does a free κ actually move, or is flat an attractor? Map the basin. | **done** — κ freezes at small embedding scale, escapes to ≈−0.65 at emb=1; but loss is flat in κ on easy Dyck (curvature loss-neutral) |
 | **A′** | *Difficulty sweep*: fix κ, deepen the hierarchy — does a hyperbolic dip in close-bracket loss emerge? | **done** — no; hyperbolic *hurts* Dyck LM, worst on the hardest task (optimum is flat-to-mildly-spherical) |
-| **A″** | *Tree-distance embedding*: is hyperbolic better when used as intended (embedding placement, not attention)? distortion vs κ vs depth. | **implemented** (`curvlearn/embed_tree.py`, `curvlearn/trees.py`, `notebooks/Tree_embedding.ipynb`) |
+| **A″** | *Tree-distance embedding*: is hyperbolic better when used as intended (embedding placement, not attention)? distortion vs κ vs depth. | **done** — yes; hyperbolic ~halves distortion, advantage grows with depth. Geometry is sound; the LM failure is the *mechanism* |
+| **A‴** | *Mechanism comparison*: geodesic-distance scores vs **gyro** (tangent scores + hyperbolic gyromidpoint aggregation) on the difficulty sweep. "place, don't score". | **implemented** (`attention_mode` in `model.py`, `weighted_midpoint` in `geometry.py`, `notebooks/Mechanism_compare.ipynb`) |
 | B | Curvature *annealing curriculum*: start non-flat, drive |κ| on a schedule on a product 𝕊×𝔼×ℍ manifold. | gated on A′ showing a κ-dependent loss; hook in place (`kappa_mode="schedule"`) |
 | C | *Depth-scheduled* curvature: one κ per layer, hyperbolic→flat across depth. | planned |
 | D | Pseudo-Riemannian (indefinite-signature) residual stream. | planned |

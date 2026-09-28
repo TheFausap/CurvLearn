@@ -156,6 +156,41 @@ def tree_embed_plot(out, path):
     fig.tight_layout(); fig.savefig(path, dpi=200); plt.close(fig)
 
 
+def mechanism_plot(out, path):
+    """Compare attention mechanisms: close-loss relative to kappa=0, per difficulty, one panel
+    per mode. Reads the thesis directly -- 'geodesic' (curvature in the scores) should sit ABOVE
+    0 at kappa<0 (hyperbolic hurts, the A' result); 'gyro' (tangent scores + hyperbolic
+    gyromidpoint aggregation) is the fix, so if the geometry is usable it should be flat or dip
+    BELOW 0 at kappa<0, especially on the hard task."""
+    recs = out["records"]
+    modes = sorted(set(r.get("mode", "geodesic") for r in recs))
+    diffs = [d["name"] for d in out["spec"]["difficulties"]]
+    kappas = sorted(set(r["kappa"] for r in recs))
+    fig, axes = plt.subplots(1, len(modes), figsize=(6 * len(modes), 4.4), sharey=True)
+    if len(modes) == 1:
+        axes = [axes]
+    cmap = plt.get_cmap("viridis")
+    for ax, mode in zip(axes, modes):
+        for di, name in enumerate(diffs):
+            mean = []
+            for kap in kappas:
+                vals = [r["close_loss"] for r in recs
+                        if r.get("mode", "geodesic") == mode and r["difficulty"] == name
+                        and r["kappa"] == kap and np.isfinite(r["close_loss"])]
+                mean.append(np.mean(vals) if vals else np.nan)
+            mean = np.array(mean)
+            z = kappas.index(0.0) if 0.0 in kappas else int(np.argmin(np.abs(kappas)))
+            col = cmap(0.15 + 0.7 * di / max(1, len(diffs) - 1))
+            ax.plot(kappas, mean - mean[z], "-o", color=col, label=name)
+        ax.axvline(0, color="k", lw=0.6, ls=":"); ax.axhline(0, color="k", lw=0.6, ls=":")
+        ax.set_xlabel(r"fixed curvature $\kappa$"); ax.set_title(f"attention = {mode}")
+        ax.legend(title="difficulty")
+    axes[0].set_ylabel(r"close-loss relative to $\kappa=0$")
+    fig.suptitle("Mechanism comparison: does hyperbolic aggregation ('gyro') "
+                 "beat distance-attention ('geodesic')?")
+    fig.tight_layout(); fig.savefig(path, dpi=200); plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", default="results/designA_results.json")

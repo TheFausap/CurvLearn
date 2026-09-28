@@ -37,6 +37,9 @@ class ModelConfig:
     geodesic_output: bool = True    # False -> plain linear head (kappa only in attention)
     norm_features: bool = False     # LayerNorm shrinks norms and fights curvature; off by default
     emb_init_std: float = 0.02      # small init: tokens must start INSIDE the ball, not on it
+    attention_mode: str = "geodesic"  # "geodesic": scores = -beta*d_kappa^2 (Design A/A').
+                                       # "gyro": tangent-space Q.K scores + hyperbolic
+                                       #   gyromidpoint aggregation ("place, don't score").
 
 
 class GeoAttention(nn.Module):
@@ -45,21 +48,35 @@ class GeoAttention(nn.Module):
         assert cfg.d_model % cfg.n_heads == 0
         self.h = cfg.n_heads
         self.dh = cfg.d_model // cfg.n_heads
+        self.mode = cfg.attention_mode
         self.beta = nn.Parameter(torch.tensor(1.0))
         self.Wv = nn.Linear(cfg.d_model, cfg.d_model, bias=False)
         self.Wo = nn.Linear(cfg.d_model, cfg.d_model, bias=False)
+        if self.mode == "gyro":
+            self.Wq = nn.Linear(cfg.d_model, cfg.d_model, bias=False)
+            self.Wk = nn.Linear(cfg.d_model, cfg.d_model, bias=False)
 
     def forward(self, x, k, causal_mask):
         B, T, D = x.shape
         xt = G.logmap0(x, k)                                   # tangent features (B,T,D)
         xh = x.view(B, T, self.h, self.dh).transpose(1, 2)     # (B,H,T,dh) product-of-balls
-        d2 = G.pairwise_dist2(xh, k)                            # (B,H,T,T)
-        scores = -self.beta.abs() * d2
-        scores = scores.masked_fill(causal_mask, float("-inf"))
-        A = torch.softmax(scores, dim=-1)
-        vh = self.Wv(xt).view(B, T, self.h, self.dh).transpose(1, 2)   # (B,H,T,dh)
-        agg = torch.matmul(A, vh).transpose(1, 2).reshape(B, T, D)     # (B,T,D)
-        return xt + self.Wo(agg)                                # residual in tangent space
+
+        if self.mode == "geodesic":
+            scores = -self.beta.abs() * G.pairwise_dist2(xh, k)          # curvature in the SCORES
+            A = torch.softmax(scores.masked_fill(causal_mask, float("-inf")), dim=-1)
+            vh = self.Wv(xt).view(B, T, self.h, self.dh).transpose(1, 2)
+            agg = torch.matmul(A, vh).transpose(1, 2).reshape(B, T, D)   # Euclidean tangent sum
+            return xt + self.Wo(agg)
+
+        # "gyro": tangent-space Q.K scores (curvature NOT in the score), curvature enters via a
+        # hyperbolic gyromidpoint aggregation of the value POINTS -- "place, don't score".
+        q = self.Wq(xt).view(B, T, self.h, self.dh).transpose(1, 2)      # (B,H,T,dh)
+        kk_ = self.Wk(xt).view(B, T, self.h, self.dh).transpose(1, 2)
+        scores = torch.matmul(q, kk_.transpose(-2, -1)) / (self.dh ** 0.5)
+        A = torch.softmax(scores.masked_fill(causal_mask, float("-inf")), dim=-1)  # (B,H,T,T)
+        agg_pts = G.weighted_midpoint(xh, A, k)                          # (B,H,T,dh) on manifold
+        agg = G.logmap0(agg_pts, k).transpose(1, 2).reshape(B, T, D)     # back to tangent
+        return xt + self.Wo(agg)
 
 
 class TangentFFN(nn.Module):

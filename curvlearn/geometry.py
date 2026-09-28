@@ -108,6 +108,32 @@ def logmap0(x, k):
     return coef * x
 
 
+def mobius_scalar(r, x, k):
+    """Moebius scalar multiplication r (x)_k x = exp_0(r * log_0(x)). r is a python float."""
+    return expmap0(r * logmap0(x, k), k)
+
+
+def weighted_midpoint(points, weights, k):
+    """Kappa-stereographic weighted gyromidpoint (Bachmann et al. 2020, Eq. for the
+    gyromidpoint), the curvature-aware analogue of a weighted average:
+
+        m = (1/2) (x)_k  [ sum_j w_j lambda_j x_j / sum_j w_j (lambda_j - 1) ],
+        lambda_j = 2 / (1 + k ||x_j||^2)   (the conformal factor).
+
+    points:  (..., T, D) manifold points.  weights: (..., Q, T) nonneg attention weights.
+    returns: (..., Q, D) aggregated points. At k=0 this reduces exactly to the Euclidean
+    weighted mean (checked in tests); this is where curvature enters attention non-trivially,
+    unlike a tangent-space weighted sum (which cancels because log_0 o exp_0 = id).
+    """
+    kk = k.reshape(())
+    n2 = points.pow(2).sum(-1)                                  # (..., T)
+    lam = 2.0 / (1 + kk * n2).clamp_min(EPS)                    # (..., T)
+    num = torch.matmul(weights * lam.unsqueeze(-2), points)     # (..., Q, D)
+    den = (weights * (lam - 1).unsqueeze(-2)).sum(-1, keepdim=True)  # (..., Q, 1)
+    ratio = project(num / den.clamp_min(EPS), kk)               # den>0 for k<=0 (lam>=2)
+    return mobius_scalar(0.5, ratio, kk)
+
+
 def pairwise_dist2(x, k):
     """Squared geodesic distances between all pairs along the sequence axis.
 

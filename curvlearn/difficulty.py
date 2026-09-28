@@ -69,6 +69,7 @@ def default_spec():
         "kappa_grid": [-2.0, -1.0, -0.5, 0.0, 0.5],
         "seeds": 3,
         "emb_scale": 1.0,
+        "attention_modes": ["geodesic", "gyro"],
         "model": {"d_model": 32, "n_layers": 2, "n_heads": 1, "geodesic_output": True},
         "train": {"steps": 2000, "batch_size": 64, "seq_len": 128,
                   "lr": 3e-3, "device": "cuda", "log_every": 50},
@@ -80,7 +81,9 @@ def run_difficulty(spec, checkpoint_path=None, resume=True):
     kappa_grid = spec["kappa_grid"]
     n_seeds = spec["seeds"]
     emb = spec.get("emb_scale", 1.0)
-    base_model = {k: v for k, v in spec.get("model", {}).items() if k != "seq_len"}
+    modes = spec.get("attention_modes", ["geodesic"])
+    base_model = {k: v for k, v in spec.get("model", {}).items()
+                  if k not in ("seq_len", "attention_mode")}
     base_train = spec.get("train", {})
     seq_len = base_train.get("seq_len", 128)
 
@@ -90,36 +93,39 @@ def run_difficulty(spec, checkpoint_path=None, resume=True):
             prev = json.load(open(checkpoint_path))
             records = [r for r in prev.get("records", [])
                        if math.isfinite(r.get("close_loss", float("nan")))]
-            done = {(r["difficulty"], round(r["kappa"], 6), r["seed"]) for r in records}
+            done = {(r.get("mode", "geodesic"), r["difficulty"], round(r["kappa"], 6), r["seed"])
+                    for r in records}
             print(f"resuming: {len(done)} runs cached", flush=True)
         except Exception as e:
             print(f"could not resume ({e}); fresh", flush=True)
 
-    total = len(diffs) * len(kappa_grid) * n_seeds
+    total = len(modes) * len(diffs) * len(kappa_grid) * n_seeds
     t0, i = time.time(), 0
-    for d in diffs:
-        data_eval = make_dataset("dyck", k=d["k"], max_depth=d["max_depth"], seed=99999)
-        for kap in kappa_grid:
-            for seed in range(n_seeds):
-                i += 1
-                key = (d["name"], round(kap, 6), seed)
-                if key in done:
-                    print(f"[{i}/{total}] {d['name']} k={kap:+.1f} s={seed} (cached)", flush=True)
-                    continue
-                data = make_dataset("dyck", k=d["k"], max_depth=d["max_depth"], seed=seed)
-                mcfg = ModelConfig(vocab_size=data.vocab_size, kappa_init=kap,
-                                   emb_scale=emb, **base_model)
-                tcfg = TrainConfig(kappa_mode="fixed", seed=seed, **base_train)
-                res = run_training(mcfg, data, tcfg)
-                overall, close = eval_losses(res["model"], data_eval, seq_len)
-                rec = {"difficulty": d["name"], "k": d["k"], "max_depth": d["max_depth"],
-                       "kappa": kap, "seed": seed, "overall_loss": overall,
-                       "close_loss": close, "diverged": bool(res["diverged"])}
-                records.append(rec)
-                if checkpoint_path:
-                    _atomic_dump({"spec": spec, "records": records}, checkpoint_path)
-                print(f"[{i}/{total}] {d['name']:6s} k={kap:+.1f} s={seed} "
-                      f"close={close:.3f} overall={overall:.3f} ({time.time()-t0:.0f}s)", flush=True)
+    for mode in modes:
+        for d in diffs:
+            data_eval = make_dataset("dyck", k=d["k"], max_depth=d["max_depth"], seed=99999)
+            for kap in kappa_grid:
+                for seed in range(n_seeds):
+                    i += 1
+                    key = (mode, d["name"], round(kap, 6), seed)
+                    if key in done:
+                        print(f"[{i}/{total}] {mode} {d['name']} k={kap:+.1f} s={seed} (cached)", flush=True)
+                        continue
+                    data = make_dataset("dyck", k=d["k"], max_depth=d["max_depth"], seed=seed)
+                    mcfg = ModelConfig(vocab_size=data.vocab_size, kappa_init=kap,
+                                       emb_scale=emb, attention_mode=mode, **base_model)
+                    tcfg = TrainConfig(kappa_mode="fixed", seed=seed, **base_train)
+                    res = run_training(mcfg, data, tcfg)
+                    overall, close = eval_losses(res["model"], data_eval, seq_len)
+                    rec = {"mode": mode, "difficulty": d["name"], "k": d["k"],
+                           "max_depth": d["max_depth"], "kappa": kap, "seed": seed,
+                           "overall_loss": overall, "close_loss": close,
+                           "diverged": bool(res["diverged"])}
+                    records.append(rec)
+                    if checkpoint_path:
+                        _atomic_dump({"spec": spec, "records": records}, checkpoint_path)
+                    print(f"[{i}/{total}] {mode:8s} {d['name']:6s} k={kap:+.1f} s={seed} "
+                          f"close={close:.3f} ({time.time()-t0:.0f}s)", flush=True)
 
     return {"spec": spec, "records": records, "wall_seconds": time.time() - t0}
 

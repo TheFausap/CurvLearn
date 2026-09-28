@@ -53,3 +53,46 @@ def dist(x, y, k):
 def dist2(x, y, k):
     d = dist(x, y, k)
     return d * d
+
+
+def _expmap0(v, k):
+    n = math.sqrt(max(_n2(v), 0.0))
+    if n < EPS:
+        return list(v)
+    s = math.sqrt(abs(k))
+    if abs(k) < EPS:
+        coef = 1.0
+    elif k < 0:
+        coef = math.tanh(s * n) / (s * n)
+    else:
+        coef = math.tan(s * n) / (s * n)
+    return _scal(coef, v)
+
+
+def _logmap0(x, k):
+    n = math.sqrt(max(_n2(x), 0.0))
+    if n < EPS:
+        return list(x)
+    if abs(k) < EPS:
+        return list(x)
+    s = math.sqrt(abs(k))
+    if k < 0:
+        coef = math.atanh(min(s * n, 1 - EPS)) / (s * n)
+    else:
+        coef = math.atan(s * n) / (s * n)
+    return _scal(coef, x)
+
+
+def weighted_midpoint(points, weights, k):
+    """Reference gyromidpoint of a single set of points with scalar weights (pure stdlib)."""
+    lam = [2.0 / (1 + k * _n2(x)) for x in points]
+    D = len(points[0])
+    num = [0.0] * D
+    den = 0.0
+    for w, l, x in zip(weights, lam, points):
+        for d in range(D):
+            num[d] += w * l * x[d]
+        den += w * (l - 1)
+    ratio = [n / den for n in num]
+    lv = _logmap0(ratio, k)
+    return _expmap0(_scal(0.5, lv), k)
