@@ -31,13 +31,16 @@ def test_flat_limit():
 
 
 def test_origin_gradient_coefficient():
-    # d^2(0, y) = 4 r^2 + (8/3)|k| r^4 + O(k^2);  d(d^2)/d|k| at 0 == (8/3) r^4
+    # d^2(0, y) = 4 r^2 + (8/3)|k| r^4 + O(k^2);  d(d^2)/d|k| at 0 == (8/3) r^4.
+    # Finite-differencing squared distances: the signal ~ (8/3) h r^4 sits on top of 4 r^2,
+    # so it underflows float32 (e.g. 1.7e-10 vs 0.01). Verify the identity in float64.
+    dt = torch.float64
     h = 1e-5
     for r in [0.05, 0.1, 0.2, 0.4]:
-        x0 = torch.zeros(1, 3)
-        y0 = torch.tensor([[r, 0.0, 0.0]])
-        d2_0 = G.dist(x0, y0, torch.tensor(0.0)) ** 2
-        d2_m = G.dist(x0, y0, torch.tensor(-h)) ** 2
+        x0 = torch.zeros(1, 3, dtype=dt)
+        y0 = torch.tensor([[r, 0.0, 0.0]], dtype=dt)
+        d2_0 = G.dist(x0, y0, torch.tensor(0.0, dtype=dt)) ** 2
+        d2_m = G.dist(x0, y0, torch.tensor(-h, dtype=dt)) ** 2
         # k = -h has |k| = h > 0, so d^2 grows: d(d^2)/d|k| = +(8/3) r^4
         g = float((d2_m - d2_0) / h)
         pred = (8.0 / 3.0) * r ** 4
