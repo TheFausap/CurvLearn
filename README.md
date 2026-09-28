@@ -86,6 +86,19 @@ Outputs:
 The default sweep is 27 cells × 2000 steps of a 2-layer, d=64 model on Dyck-3 — minutes on an
 A100, and it will complete on CPU. Swap in a real corpus with `dataset: {name: char, path: …}`.
 
+**Persistence & resume.** The sweep writes its results file *after every cell*, atomically, and
+skips cells already present on a re-run — so a killed process (or a recycled Colab runtime)
+costs at most one cell. Point `--out` at a durable location to resume across restarts:
+
+```bash
+python -m curvlearn.sweep --out /content/drive/MyDrive/CurvLearn/results/designA_results.json
+# re-run the same command after a disconnect -> it continues; add --no-resume to start over
+```
+
+In `notebooks/Design_A_flat_attractor.ipynb` this is wired to Google Drive automatically: the
+notebook mounts Drive and sets `OUTDIR=/content/drive/MyDrive/CurvLearn/results`, so results and
+figures survive the runtime being recycled.
+
 ## What to look for
 
 1. **Does κ move from κ₀ = 0?** If it does not (small `|Δκ|` in the middle columns) while it

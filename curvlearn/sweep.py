@@ -18,7 +18,25 @@ from .train import TrainConfig, run_training
 from .data import make_dataset
 
 
-def run_sweep(spec: dict):
+def _atomic_dump(obj, path):
+    """Write JSON to ``path`` via a temp file + rename, so a killed runtime never leaves a
+    half-written checkpoint (important on Colab, where the kernel can vanish mid-write)."""
+    d = os.path.dirname(path) or "."
+    os.makedirs(d, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(obj, f)
+    os.replace(tmp, path)
+
+
+def run_sweep(spec: dict, checkpoint_path: str | None = None, resume: bool = True):
+    """Run the Design A sweep.
+
+    If ``checkpoint_path`` is given, the accumulated results are written there after *every*
+    cell (atomically), and -- when ``resume`` is True -- cells already present in that file
+    are skipped. So a Colab disconnect costs at most one cell, and re-running the notebook
+    picks up where it stopped. Point ``checkpoint_path`` at Google Drive for persistence.
+    """
     ds = spec["dataset"]
     data = make_dataset(ds["name"], **{k: v for k, v in ds.items() if k != "name"})
     vocab = data.vocab_size
@@ -28,13 +46,25 @@ def run_sweep(spec: dict):
     base_model = {k: v for k, v in spec.get("model", {}).items() if k != "seq_len"}
     base_train = spec.get("train", {})
 
-    cells = []
+    cells, done = [], set()
+    if checkpoint_path and resume and os.path.exists(checkpoint_path):
+        try:
+            prev = json.load(open(checkpoint_path))
+            cells = prev.get("cells", [])
+            done = {(round(c["kappa_init"], 6), round(c["emb_scale"], 6)) for c in cells}
+            print(f"resuming: {len(done)} cells already done in {checkpoint_path}", flush=True)
+        except Exception as e:
+            print(f"could not resume ({e}); starting fresh", flush=True)
+
     t0 = time.time()
     total = len(kappa0_grid) * len(emb_grid)
     i = 0
     for emb in emb_grid:
         for k0 in kappa0_grid:
             i += 1
+            if (round(k0, 6), round(emb, 6)) in done:
+                print(f"[{i}/{total}] emb={emb:>4} k0={k0:+.2f} -> (cached)", flush=True)
+                continue
             mcfg = ModelConfig(vocab_size=vocab, kappa_init=k0, emb_scale=emb, **base_model)
             tcfg = TrainConfig(kappa_mode="learn", **base_train)
             res = run_training(mcfg, data, tcfg)
@@ -46,6 +76,10 @@ def run_sweep(spec: dict):
                     "kappa_grad_traj": res["history"]["kappa_grad"],
                     "step_traj": res["history"]["step"]}
             cells.append(cell)
+            out = {"spec": spec, "cells": cells, "vocab_size": vocab,
+                   "wall_seconds": time.time() - t0}
+            if checkpoint_path:
+                _atomic_dump(out, checkpoint_path)
             print(f"[{i}/{total}] emb={emb:>4} k0={k0:+.2f} -> k_final={cell['kappa_final']:+.3f} "
                   f"|delta|={abs(cell['delta']):.3f} loss={cell['final_loss']:.3f} "
                   f"({time.time()-t0:.0f}s)", flush=True)
@@ -72,6 +106,8 @@ def main():
     ap.add_argument("--out", type=str, default="results/designA_results.json")
     ap.add_argument("--steps", type=int, default=None)
     ap.add_argument("--device", type=str, default=None)
+    ap.add_argument("--no-resume", action="store_true",
+                    help="ignore any existing checkpoint at --out and start fresh")
     args = ap.parse_args()
 
     spec = default_spec()
@@ -85,10 +121,9 @@ def main():
     if args.device is not None:
         spec["train"]["device"] = args.device
 
-    out = run_sweep(spec)
-    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    with open(args.out, "w") as f:
-        json.dump(out, f)
+    # checkpoint == output path: incremental, atomic, and resumable across restarts
+    out = run_sweep(spec, checkpoint_path=args.out, resume=not args.no_resume)
+    _atomic_dump(out, args.out)
     print(f"\nwrote {args.out}  ({len(out['cells'])} cells, {out['wall_seconds']:.0f}s)")
 
 
