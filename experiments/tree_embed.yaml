@@ -1,0 +1,12 @@
+# Tree-distance embedding: does hyperbolic curvature lower distortion, and more so with depth?
+trees:
+  - {name: shallow, b: 2, h: 4}   # N=31
+  - {name: medium,  b: 2, h: 6}   # N=127
+  - {name: deep,    b: 2, h: 8}   # N=511
+
+kappa_grid: [-3.0, -2.0, -1.0, -0.5, -0.2, 0.0, 0.5]
+seeds: 3
+dim: 10            # lower (5, 2) to amplify the hyperbolic advantage
+steps: 1500
+lr: 5.0e-2
+device: cuda

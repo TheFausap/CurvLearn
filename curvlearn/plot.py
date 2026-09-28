@@ -121,6 +121,41 @@ def difficulty_plot(out, path):
     fig.tight_layout(); fig.savefig(path, dpi=200); plt.close(fig)
 
 
+def tree_embed_plot(out, path):
+    """Tree-embedding distortion vs fixed curvature, one line per tree depth. Distortion is
+    lower=better, so HYPERBOLIC WINS = the curve dips at kappa<0. Left: absolute (mean +/-1 std
+    over seeds). Right: distortion relative to kappa=0 -- below 0 at kappa<0 means hyperbolic
+    embeds the tree with lower distortion than Euclidean, and the gap should grow with depth."""
+    recs = out["records"]
+    trees = [t["name"] for t in out["spec"]["trees"]]
+    kappas = sorted(set(r["kappa"] for r in recs))
+    fig, (axL, axR) = plt.subplots(1, 2, figsize=(12, 4.4))
+    cmap = plt.get_cmap("viridis")
+    for ti, name in enumerate(trees):
+        mean, std = [], []
+        for kap in kappas:
+            vals = [r["distortion"] for r in recs
+                    if r["tree"] == name and r["kappa"] == kap and np.isfinite(r["distortion"])]
+            mean.append(np.mean(vals) if vals else np.nan)
+            std.append(np.std(vals) if len(vals) > 1 else 0.0)
+        mean, std = np.array(mean), np.array(std)
+        col = cmap(0.15 + 0.7 * ti / max(1, len(trees) - 1))
+        axL.plot(kappas, mean, "-o", color=col, label=name)
+        axL.fill_between(kappas, mean - std, mean + std, color=col, alpha=0.2)
+        z = kappas.index(0.0) if 0.0 in kappas else int(np.argmin(np.abs(kappas)))
+        axR.plot(kappas, mean - mean[z], "-o", color=col, label=name)
+    for ax in (axL, axR):
+        ax.axvline(0, color="k", lw=0.6, ls=":"); ax.set_xlabel(r"fixed curvature $\kappa$")
+    axR.axhline(0, color="k", lw=0.6, ls=":")
+    axL.set_ylabel("average distortion (lower = better)")
+    axR.set_ylabel(r"distortion relative to $\kappa=0$")
+    axL.set_title("Absolute (mean $\\pm$ 1 std over seeds)")
+    axR.set_title(r"Relative to flat: below 0 at $\kappa<0$ = hyperbolic embeds better")
+    axL.legend(title="tree"); axR.legend(title="tree")
+    fig.suptitle("Tree-distance embedding: does hyperbolic curvature lower distortion?")
+    fig.tight_layout(); fig.savefig(path, dpi=200); plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", default="results/designA_results.json")
