@@ -59,12 +59,15 @@ def mobius_add(x, y, k):
 
 
 def dist(x, y, k):
-    """Geodesic distance d_k(x, y); returns 2||x-y|| at k=0. ``k`` is a scalar tensor."""
+    """Geodesic distance d_k(x, y) = 2 * tan_k^{-1}(|| -x (+)_k y ||).
+
+    ``artan_k`` already carries the 1/sqrt|k| factor (it *is* tan_k^{-1}), so the prefactor
+    here is exactly 2 -- not 2/sqrt|k|. Returns 2||x-y|| at k=0. ``k`` is a scalar tensor.
+    """
     kk = k.reshape(())                       # curvature is a single scalar throughout
     v = mobius_add(-x, y, kk)
     vnorm = v.pow(2).sum(-1).clamp_min(0).sqrt()
-    s = torch.sqrt(torch.clamp(kk.abs(), min=EPS))
-    d = (2.0 / s) * artan_k(vnorm, kk)
+    d = 2.0 * artan_k(vnorm, kk)
     return torch.where(kk.abs() < 1e-7, 2.0 * vnorm, d)
 
 
