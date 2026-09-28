@@ -191,6 +191,53 @@ def mechanism_plot(out, path):
     fig.tight_layout(); fig.savefig(path, dpi=200); plt.close(fig)
 
 
+def dim_sweep_plot(out, path):
+    """Does hyperbolic aggregation beat flat as d_model shrinks? Left: the 'hyperbolic
+    advantage' = (best close-loss over kappa<0) - (close-loss at kappa=0), vs d_model, per
+    difficulty. BELOW 0 = hyperbolic beats Euclidean; the prediction is this goes negative as
+    dimension shrinks, first/most on the hard task. Right: close-loss relative to kappa=0 vs
+    kappa at the SMALLEST dim, where the dip should be clearest."""
+    recs = out["records"]
+    diffs = [d["name"] for d in out["spec"]["difficulties"]]
+    dims = sorted(set(r["dim"] for r in recs))
+    kappas = sorted(set(r["kappa"] for r in recs))
+    neg_k = [k for k in kappas if k < 0]
+
+    def mean_close(dim, name, kap):
+        v = [r["close_loss"] for r in recs if r["dim"] == dim and r["difficulty"] == name
+             and r["kappa"] == kap and np.isfinite(r["close_loss"])]
+        return np.mean(v) if v else np.nan
+
+    fig, (axL, axR) = plt.subplots(1, 2, figsize=(12, 4.4))
+    cmap = plt.get_cmap("viridis")
+    for di, name in enumerate(diffs):
+        col = cmap(0.15 + 0.7 * di / max(1, len(diffs) - 1))
+        adv = []
+        for dim in dims:
+            flat = mean_close(dim, name, 0.0)
+            best_neg = np.nanmin([mean_close(dim, name, k) for k in neg_k]) if neg_k else np.nan
+            adv.append(best_neg - flat)
+        axL.plot(dims, adv, "-o", color=col, label=name)
+    axL.axhline(0, color="k", lw=0.6, ls=":")
+    axL.set_xscale("log", base=2); axL.set_xticks(dims); axL.set_xticklabels(dims)
+    axL.set_xlabel("d_model"); axL.set_ylabel("hyperbolic advantage (best $\\kappa<0$ - $\\kappa=0$)")
+    axL.set_title("Below 0 = hyperbolic beats flat")
+    axL.legend(title="difficulty")
+
+    dmin = dims[0]
+    for di, name in enumerate(diffs):
+        col = cmap(0.15 + 0.7 * di / max(1, len(diffs) - 1))
+        z = mean_close(dmin, name, 0.0)
+        axR.plot(kappas, [mean_close(dmin, name, k) - z for k in kappas], "-o", color=col, label=name)
+    axR.axvline(0, color="k", lw=0.6, ls=":"); axR.axhline(0, color="k", lw=0.6, ls=":")
+    axR.set_xlabel(r"fixed curvature $\kappa$")
+    axR.set_ylabel(r"close-loss relative to $\kappa=0$")
+    axR.set_title(f"Curves at smallest dim (d_model={dmin})")
+    axR.legend(title="difficulty")
+    fig.suptitle("Dimension sweep (gyro): does curvature help once space is tight?")
+    fig.tight_layout(); fig.savefig(path, dpi=200); plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", default="results/designA_results.json")
