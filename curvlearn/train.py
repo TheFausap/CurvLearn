@@ -54,19 +54,25 @@ def run_training(mcfg: ModelConfig, data, tcfg: TrainConfig,
 
         x, y = data.batch(tcfg.batch_size, tcfg.seq_len, device=dev)
         _, loss = model(x, y)
+        if not torch.isfinite(loss):
+            print(f"  [step {step}] non-finite loss ({float(loss.detach())}); stopping this run. "
+                  f"Lower emb_scale / lr, or check the |kappa| range.", flush=True)
+            break
         opt.zero_grad(set_to_none=True)
         loss.backward()
-        kg = float(model.kappa.grad) if model.kappa.grad is not None else 0.0
+        kg = float(model.kappa.grad.detach()) if model.kappa.grad is not None else 0.0
         if tcfg.grad_clip:
             torch.nn.utils.clip_grad_norm_(model.parameters(), tcfg.grad_clip)
         opt.step()
 
         if step % tcfg.log_every == 0:
             hist["step"].append(step)
-            hist["loss"].append(float(loss))
-            hist["kappa"].append(float(model.kappa))
+            hist["loss"].append(float(loss.detach()))
+            hist["kappa"].append(float(model.kappa.detach()))
             hist["kappa_grad"].append(kg)
 
+    final_loss = hist["loss"][-1] if hist["loss"] else float("nan")
     return {"model": model, "history": hist,
-            "kappa_init": float(mcfg.kappa_init), "kappa_final": float(model.kappa),
-            "emb_scale": float(mcfg.emb_scale), "final_loss": hist["loss"][-1]}
+            "kappa_init": float(mcfg.kappa_init), "kappa_final": float(model.kappa.detach()),
+            "emb_scale": float(mcfg.emb_scale), "final_loss": final_loss,
+            "diverged": not (hist["loss"] and step >= tcfg.steps)}

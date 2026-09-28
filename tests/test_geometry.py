@@ -13,14 +13,19 @@ def _rand_vec(d, scale):
 
 
 def test_matches_reference():
+    # Stay in the interior regime where neither implementation's boundary clamp binds
+    # (s*||v|| stays < ~0.7 here, well under the 1-1e-3 atanh clamp), so torch and the
+    # float64 reference agree to machine precision rather than differing at the boundary.
     random.seed(0)
     for _ in range(200):
         d = random.choice([2, 4, 8])
-        k = random.uniform(-2.0, 2.0)
-        x, y = _rand_vec(d, 0.2), _rand_vec(d, 0.2)
+        k = random.uniform(-1.5, 1.5)
+        x, y = _rand_vec(d, 0.15), _rand_vec(d, 0.15)
         ref = R.dist(x, y, k)
-        got = float(G.dist(torch.tensor([x]), torch.tensor([y]), torch.tensor(k)))
-        assert abs(ref - got) < 1e-4, (k, ref, got)
+        got = float(G.dist(torch.tensor([x], dtype=torch.float64),
+                           torch.tensor([y], dtype=torch.float64),
+                           torch.tensor(k, dtype=torch.float64)))
+        assert abs(ref - got) < 1e-6, (k, ref, got)
 
 
 def test_flat_limit():

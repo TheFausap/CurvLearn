@@ -36,6 +36,7 @@ class ModelConfig:
     ffn_mult: int = 2
     geodesic_output: bool = True    # False -> plain linear head (kappa only in attention)
     norm_features: bool = False     # LayerNorm shrinks norms and fights curvature; off by default
+    emb_init_std: float = 0.02      # small init: tokens must start INSIDE the ball, not on it
 
 
 class GeoAttention(nn.Module):
@@ -88,6 +89,16 @@ class GeometricAttentionLM(nn.Module):
             self.beta_out = nn.Parameter(torch.tensor(1.0))
         else:
             self.head = nn.Linear(cfg.d_model, cfg.vocab_size, bias=True)
+
+        # Small init so exp_0(embedding) lands well inside the ball. Default N(0,1) gives a
+        # tangent of norm ~sqrt(d_model), which exp_0 pushes onto the boundary (kappa<0) where
+        # the geometry is numerically singular -> NaNs. emb_scale then dials the interior
+        # radius up from here (and is the Design-A sweep knob).
+        s = cfg.emb_init_std
+        nn.init.normal_(self.tok.weight, std=s)
+        nn.init.normal_(self.pos.weight, std=s)
+        if cfg.geodesic_output:
+            nn.init.normal_(self.out_pts.weight, std=s)
 
     def _k(self):
         # keep curvature in a safe band; f32 for all geometry

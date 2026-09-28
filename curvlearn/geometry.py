@@ -18,8 +18,13 @@ from __future__ import annotations
 import torch
 
 EPS = 1e-9
-TANH_CLAMP = 1.0 - 1e-6         # keep atanh argument < 1
-MAX_NORM_FRAC = 1.0 - 1e-3      # points kept strictly inside the k<0 ball
+# Keep atanh's argument well below 1: its derivative 1/(1-x^2) explodes near the boundary,
+# so 1-1e-3 caps that gradient at ~5e2 instead of ~1e6 -- the difference between a stable
+# hyperbolic model and NaNs. MAX_NORM_FRAC keeps points at <=0.9 of the ball radius so they
+# never reach that regime in the first place.
+TANH_CLAMP = 1.0 - 1e-3
+MAX_NORM_FRAC = 0.9
+TAN_CLAMP = 1.5                 # < pi/2: keep tan finite on the spherical (k>0) side
 
 
 def _sqrt_abs(k):
@@ -81,7 +86,7 @@ def expmap0(v, k):
     if neg.any():
         coef = torch.where(neg, torch.tanh(torch.clamp(s * vnorm, max=15.0)) / (s * vnorm), coef)
     if pos.any():
-        coef = torch.where(pos, torch.tan(s * vnorm) / (s * vnorm), coef)
+        coef = torch.where(pos, torch.tan(torch.clamp(s * vnorm, max=TAN_CLAMP)) / (s * vnorm), coef)
     return project(coef * v, k)
 
 
