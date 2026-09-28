@@ -52,7 +52,8 @@ companion design memo (`tunable_curvature_memo.md`, shared alongside this repo).
 | **A″** | *Tree-distance embedding*: is hyperbolic better when used as intended (embedding placement, not attention)? distortion vs κ vs depth. | **done** — yes; hyperbolic ~halves distortion, advantage grows with depth. Geometry is sound; the LM failure is the *mechanism* |
 | **A‴** | *Mechanism comparison*: geodesic-distance scores vs **gyro** (tangent scores + hyperbolic gyromidpoint aggregation). "place, don't score". | **done** — gyro halves the hard-task penalty and flips the depth ordering (helps most where hierarchy is deepest) but doesn't beat flat at d_model=32 |
 | **A⁗** | *Dimension sweep*: does gyro beat flat as d_model shrinks (curvature helps only when space is tight)? | **done** — yes; hyperbolic significantly beats flat at small d (medium@d=4, hard@d=8), reverses at d=16–32. "Too much space goes flat" |
-| **B** | *Learn/schedule κ* in the crossover regime: does the model find κ≈−0.5, does flat-init trap it, does a schedule beat free learning? | **implemented** (`curvlearn/design_b.py`, `notebooks/Design_B.ipynb`) |
+| **B** | *Learn/schedule κ* in the crossover regime: does the model find κ≈−0.5, does flat-init trap it, does a schedule beat free learning? | **done** — every curved setting beats flat; the model learns κ≈−0.45 from a flat start (attractor doesn't trap it here); schedule competitive not necessary |
+| **C** | *Per-subspace mixed curvature*: a product manifold with a learnable κ per head — does mixing beat a shared κ, do heads specialise? | **implemented** (`ProductGyroLM` in `model.py`, `curvlearn/product.py`, `notebooks/Product_manifold.ipynb`) |
 | C | *Depth-scheduled* curvature: one κ per layer, hyperbolic→flat across depth. | planned |
 | D | Pseudo-Riemannian (indefinite-signature) residual stream. | planned |
 

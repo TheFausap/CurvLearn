@@ -1,0 +1,16 @@
+# Per-subspace mixed curvature: shared vs per-head learnable kappa in the crossover regime.
+regimes:
+  - {name: medium, k: 3, max_depth: 25, dim: 4, n_heads: 2}
+  - {name: hard,   k: 5, max_depth: 50, dim: 8, n_heads: 4}
+
+factors: [shared, per_head]     # shared = 1 kappa for all heads; per_head = 1 kappa per head
+seeds: 3
+emb_scale: 1.0
+
+train:
+  steps: 2000
+  batch_size: 64
+  seq_len: 128
+  lr: 3.0e-3
+  kappa_lr: 5.0e-2
+  device: cuda

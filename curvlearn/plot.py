@@ -308,6 +308,50 @@ def design_b_plot(out, path):
     fig.tight_layout(); fig.savefig(path, dpi=200); plt.close(fig)
 
 
+def product_plot(out, path):
+    """Left: eval close-loss, shared vs per-head curvature, per regime (mean +/-1 std over
+    seeds) -- does mixed curvature beat a single shared kappa? Right: the learned per-head kappa
+    values (mean over seeds) for the per_head setting -- do heads SPECIALISE to different
+    curvatures (spread) or collapse to one value?"""
+    recs = out["records"]
+    regimes = [r["name"] for r in out["spec"]["regimes"]]
+    factors = out["spec"]["factors"]
+
+    def agg(regime, factor):
+        v = [r["close_loss"] for r in recs if r["regime"] == regime and r["factor"] == factor
+             and np.isfinite(r["close_loss"])]
+        return (np.mean(v), np.std(v) if len(v) > 1 else 0.0) if v else (np.nan, 0.0)
+
+    fig, (axL, axR) = plt.subplots(1, 2, figsize=(12, 4.6))
+    x = np.arange(len(regimes)); w = 0.38
+    cmap = plt.get_cmap("viridis")
+    for fi, factor in enumerate(factors):
+        col = cmap(0.25 + 0.5 * fi)
+        m = [agg(r, factor)[0] for r in regimes]
+        e = [agg(r, factor)[1] for r in regimes]
+        axL.bar(x + fi * w, m, w, yerr=e, capsize=3, color=col, label=factor)
+    axL.set_xticks(x + w / 2); axL.set_xticklabels(regimes)
+    axL.set_ylabel("eval close-bracket loss (lower = better)")
+    axL.set_title("Shared vs per-head curvature")
+    axL.legend(title="curvature")
+
+    for ri, regime in enumerate(regimes):
+        ks = [r["kappa_final"] for r in recs if r["regime"] == regime and r["factor"] == "per_head"]
+        if not ks:
+            continue
+        K = np.array(ks)                                  # (seeds, n_heads)
+        m, e = K.mean(0), (K.std(0) if K.shape[0] > 1 else np.zeros(K.shape[1]))
+        col = cmap(0.15 + 0.7 * ri / max(1, len(regimes) - 1))
+        heads = np.arange(K.shape[1])
+        axR.errorbar(heads, m, yerr=e, marker="o", color=col, capsize=3, label=regime)
+    axR.axhline(0, color="k", lw=0.6, ls=":")
+    axR.set_xlabel("head index"); axR.set_ylabel(r"learned $\kappa$ per head")
+    axR.set_title("Do heads specialise to different curvatures?")
+    axR.legend(title="regime")
+    fig.suptitle("Per-subspace mixed curvature (product manifold)")
+    fig.tight_layout(); fig.savefig(path, dpi=200); plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", default="results/designA_results.json")

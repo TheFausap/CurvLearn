@@ -145,3 +145,86 @@ class GeometricAttentionLM(nn.Module):
         if targets is not None:
             loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), targets.reshape(-1))
         return logits, loss
+
+
+class ProductGyroAttention(nn.Module):
+    """Gyro attention on a PRODUCT manifold: each head h has its own curvature kappa[h].
+    Curvature enters only through the per-head hyperbolic gyromidpoint aggregation; scores are
+    Euclidean tangent-space Q.K. Returns the attention delta (residual added by the model)."""
+
+    def __init__(self, cfg: "ModelConfig", n_factors: int):
+        super().__init__()
+        self.h = cfg.n_heads
+        self.dh = cfg.d_model // cfg.n_heads
+        self.nf = n_factors
+        self.Wq = nn.Linear(cfg.d_model, cfg.d_model, bias=False)
+        self.Wk = nn.Linear(cfg.d_model, cfg.d_model, bias=False)
+        self.Wo = nn.Linear(cfg.d_model, cfg.d_model, bias=False)
+
+    def forward(self, t, kappa, causal_mask):
+        B, T, D = t.shape
+        q = self.Wq(t).view(B, T, self.h, self.dh).transpose(1, 2)   # (B,h,T,dh)
+        k = self.Wk(t).view(B, T, self.h, self.dh).transpose(1, 2)
+        th = t.view(B, T, self.h, self.dh).transpose(1, 2)           # (B,h,T,dh) tangent per head
+        outs = []
+        for hd in range(self.h):
+            kap = kappa[0] if self.nf == 1 else kappa[hd]            # scalar tensor, keeps grad
+            s = torch.matmul(q[:, hd], k[:, hd].transpose(-2, -1)) / (self.dh ** 0.5)  # (B,T,T)
+            A = torch.softmax(s.masked_fill(causal_mask, float("-inf")), dim=-1)
+            pts = G.expmap0(th[:, hd], kap)                          # (B,T,dh) manifold points
+            agg = G.logmap0(G.weighted_midpoint(pts, A, kap), kap)   # (B,T,dh) back to tangent
+            outs.append(agg)
+        return self.Wo(torch.cat(outs, dim=-1))                      # (B,T,D) delta
+
+
+class ProductGyroLM(nn.Module):
+    """Tangent-trunk transformer with per-head (product-manifold) curvature.
+
+    The trunk carries tangent features (the layer-boundary exp/log maps of the single-kappa
+    model cancel, so they are skipped here); curvature lives only in the per-head gyromidpoint
+    aggregation. Set n_curv_factors=1 for a single SHARED learnable curvature (the control), or
+    =n_heads for a distinct learnable curvature per head (mixed curvature). Linear output head.
+    """
+
+    def __init__(self, cfg: "ModelConfig", n_curv_factors=None):
+        super().__init__()
+        self.cfg = cfg
+        nf = int(n_curv_factors or cfg.n_heads)
+        assert nf in (1, cfg.n_heads), "n_curv_factors must be 1 (shared) or n_heads (per-head)"
+        self.nf = nf
+        self.tok = nn.Embedding(cfg.vocab_size, cfg.d_model)
+        self.pos = nn.Embedding(cfg.max_len, cfg.d_model)
+        init = torch.tensor([-1.0]) if nf == 1 else torch.linspace(-1.5, -0.2, nf)
+        self.kappa = nn.Parameter(init)                              # per-factor curvature
+        self.layers = nn.ModuleList()
+        for _ in range(cfg.n_layers):
+            self.layers.append(nn.ModuleDict({
+                "attn": ProductGyroAttention(cfg, nf),
+                "ffn": nn.Sequential(nn.Linear(cfg.d_model, cfg.d_model * cfg.ffn_mult),
+                                     nn.GELU(),
+                                     nn.Linear(cfg.d_model * cfg.ffn_mult, cfg.d_model)),
+            }))
+        self.norm = nn.LayerNorm(cfg.d_model)
+        self.head = nn.Linear(cfg.d_model, cfg.vocab_size)
+        s = cfg.emb_init_std
+        nn.init.normal_(self.tok.weight, std=s)
+        nn.init.normal_(self.pos.weight, std=s)
+
+    def _k(self):
+        return self.kappa.float().clamp(-4.0, 4.0)
+
+    def forward(self, tokens, targets=None):
+        B, T = tokens.shape
+        kappa = self._k()
+        pos = torch.arange(T, device=tokens.device)
+        with torch.autocast(device_type=tokens.device.type, enabled=False):
+            t = (self.tok(tokens) + self.pos(pos)[None]) * self.cfg.emb_scale   # tangent
+            cmask = torch.triu(torch.ones(T, T, device=tokens.device, dtype=torch.bool), 1)
+            for layer in self.layers:
+                t = t + layer["attn"](t, kappa, cmask)
+                t = t + layer["ffn"](t)
+            logits = self.head(self.norm(t))
+        loss = None
+        if targets is not None:
+            loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), targets.reshape(-1))
+        return logits, loss
