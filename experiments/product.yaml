@@ -12,5 +12,7 @@ train:
   batch_size: 64
   seq_len: 128
   lr: 3.0e-3
-  kappa_lr: 5.0e-2
+  kappa_lr: 2.0e-2      # lowered from 5e-2: geodesic readout gives kappa a strong gradient
   device: cuda
+# Readout: ProductGyroLM now uses a per-head curvature-coupled geodesic decode
+# (geodesic_output=True), so kappa is coupled to the likelihood, not just the aggregation.

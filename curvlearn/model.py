@@ -183,15 +183,30 @@ class ProductGyroLM(nn.Module):
     The trunk carries tangent features (the layer-boundary exp/log maps of the single-kappa
     model cancel, so they are skipped here); curvature lives only in the per-head gyromidpoint
     aggregation. Set n_curv_factors=1 for a single SHARED learnable curvature (the control), or
-    =n_heads for a distinct learnable curvature per head (mixed curvature). Linear output head.
+    =n_heads for a distinct learnable curvature per head (mixed curvature).
+
+    Readout: with geodesic_output=True (default via cfg) the head is a per-head curvature-coupled
+    geodesic decode -- each head's tangent slice is decoded against its slice of the vocab points
+    using that head's kappa, and the per-head squared distances are summed. This couples every
+    kappa to the likelihood (as Design B's head did), fixing the earlier linear-head confound
+    where kappa got only a weak aggregation gradient and drifted to the clamp. geodesic_output=False
+    restores the plain linear head.
     """
 
-    def __init__(self, cfg: "ModelConfig", n_curv_factors=None):
+    def __init__(self, cfg: "ModelConfig", n_curv_factors=None, geodesic_output=None):
         super().__init__()
         self.cfg = cfg
         nf = int(n_curv_factors or cfg.n_heads)
         assert nf in (1, cfg.n_heads), "n_curv_factors must be 1 (shared) or n_heads (per-head)"
         self.nf = nf
+        self.h = cfg.n_heads
+        self.dh = cfg.d_model // cfg.n_heads
+        # Curvature-coupled readout (Design B style) restores the kappa gradient a plain linear
+        # head severs. On the product manifold the decode is per-head: each head's tangent slice
+        # is decoded against its slice of the vocab points with that head's kappa, and the
+        # per-head squared geodesic distances are summed (the product-manifold distance^2). For
+        # nf==1 this reduces exactly to the single-curvature geodesic head of GeometricAttentionLM.
+        self.geodesic_output = bool(cfg.geodesic_output if geodesic_output is None else geodesic_output)
         self.tok = nn.Embedding(cfg.vocab_size, cfg.d_model)
         self.pos = nn.Embedding(cfg.max_len, cfg.d_model)
         init = torch.tensor([-1.0]) if nf == 1 else torch.linspace(-1.5, -0.2, nf)
@@ -205,8 +220,13 @@ class ProductGyroLM(nn.Module):
                                      nn.Linear(cfg.d_model * cfg.ffn_mult, cfg.d_model)),
             }))
         self.norm = nn.LayerNorm(cfg.d_model)
-        self.head = nn.Linear(cfg.d_model, cfg.vocab_size)
         s = cfg.emb_init_std
+        if self.geodesic_output:
+            self.out_pts = nn.Embedding(cfg.vocab_size, cfg.d_model)   # vocab tangent points
+            self.beta_out = nn.Parameter(torch.tensor(1.0))
+            nn.init.normal_(self.out_pts.weight, std=s)
+        else:
+            self.head = nn.Linear(cfg.d_model, cfg.vocab_size)
         nn.init.normal_(self.tok.weight, std=s)
         nn.init.normal_(self.pos.weight, std=s)
 
@@ -223,7 +243,20 @@ class ProductGyroLM(nn.Module):
             for layer in self.layers:
                 t = t + layer["attn"](t, kappa, cmask)
                 t = t + layer["ffn"](t)
-            logits = self.head(self.norm(t))
+            hh = self.norm(t)                                        # (B,T,D) tangent
+            if self.geodesic_output:
+                hv = hh.view(B, T, self.h, self.dh)                          # (B,T,h,dh)
+                ov = (self.out_pts.weight * self.cfg.emb_scale).view(
+                    self.cfg.vocab_size, self.h, self.dh)                    # (V,h,dh)
+                d2 = 0.0
+                for hd in range(self.h):
+                    kap = kappa[0] if self.nf == 1 else kappa[hd]
+                    xf = G.expmap0(hv[:, :, hd], kap)                        # (B,T,dh)
+                    o = G.expmap0(ov[:, hd], kap)                            # (V,dh)
+                    d2 = d2 + G.dist(xf.unsqueeze(-2), o[None, None], kap) ** 2  # (B,T,V)
+                logits = -self.beta_out.abs() * d2
+            else:
+                logits = self.head(hh)
         loss = None
         if targets is not None:
             loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), targets.reshape(-1))

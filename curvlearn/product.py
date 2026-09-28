@@ -24,8 +24,9 @@ def train_one(vocab, data, dim, n_heads, nf, emb_scale, steps, bs, seq_len,
               lr, kappa_lr, seed, device):
     torch.manual_seed(seed)
     cfg = ModelConfig(vocab_size=vocab, d_model=dim, n_heads=n_heads, n_layers=2,
-                      emb_scale=emb_scale, max_len=max(256, seq_len))
-    model = ProductGyroLM(cfg, n_curv_factors=nf).to(device)
+                      emb_scale=emb_scale, max_len=max(256, seq_len),
+                      geodesic_output=True)   # curvature-coupled readout (fixes the linear-head confound)
+    model = ProductGyroLM(cfg, n_curv_factors=nf, geodesic_output=True).to(device)
     kappa_params = [model.kappa]
     others = [p for n, p in model.named_parameters() if n != "kappa"]
     opt = torch.optim.AdamW([{"params": others, "lr": lr},
@@ -57,8 +58,10 @@ def default_spec():
         "factors": ["shared", "per_head"],
         "seeds": 3,
         "emb_scale": 1.0,
+        # kappa_lr lowered from 5e-2: with the geodesic readout kappa now gets a strong
+        # likelihood gradient, and 5e-2 overshot to the +-4 clamp in the linear-head run.
         "train": {"steps": 2000, "batch_size": 64, "seq_len": 128,
-                  "lr": 3e-3, "kappa_lr": 5e-2, "device": "cuda"},
+                  "lr": 3e-3, "kappa_lr": 2e-2, "device": "cuda"},
     }
 
 
