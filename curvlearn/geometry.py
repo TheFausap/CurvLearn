@@ -71,7 +71,10 @@ def dist(x, y, k):
     """
     kk = k.reshape(())                       # curvature is a single scalar throughout
     v = mobius_add(-x, y, kk)
-    vnorm = v.pow(2).sum(-1).clamp_min(0).sqrt()
+    # sqrt(sum + eps), not sqrt(sum): the attention diagonal has x_i == x_j so v == 0, where
+    # d(sqrt)/dx is infinite -> a NaN gradient on the very first backward pass. The eps keeps
+    # the value ~0 but the gradient finite. This is the standard geodesic-distance safeguard.
+    vnorm = torch.sqrt(v.pow(2).sum(-1) + 1e-12)
     d = 2.0 * artan_k(vnorm, kk)
     return torch.where(kk.abs() < 1e-7, 2.0 * vnorm, d)
 

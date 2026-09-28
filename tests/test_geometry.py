@@ -66,6 +66,19 @@ def test_curvature_gradient_vanishes_with_scale():
     assert grads[0] > grads[1] > grads[2], grads
 
 
+def test_self_distance_gradient_finite():
+    # The attention diagonal is a point's distance to itself (== 0). sqrt(0) has an infinite
+    # derivative, which used to NaN the first backward pass. Grad must now be finite.
+    torch.manual_seed(0)
+    x = (torch.randn(2, 5, 4) * 0.1).requires_grad_(True)   # (B, T, D)
+    for kval in (-1.0, 0.0, 0.5):
+        if x.grad is not None:
+            x.grad = None
+        d2 = G.pairwise_dist2(x, torch.tensor(kval))         # (B, T, T), diagonal included
+        d2.sum().backward()
+        assert torch.isfinite(x.grad).all(), (kval, x.grad)
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
