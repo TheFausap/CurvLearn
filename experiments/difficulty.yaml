@@ -1,0 +1,24 @@
+# Difficulty sweep: fixed-kappa loss vs hierarchical difficulty.
+# Does a hyperbolic dip in close-bracket loss emerge as the hierarchy deepens?
+difficulties:
+  - {name: easy,   k: 3, max_depth: 8}
+  - {name: medium, k: 3, max_depth: 25}
+  - {name: hard,   k: 5, max_depth: 50}
+
+kappa_grid: [-2.0, -1.0, -0.5, 0.0, 0.5]
+seeds: 3
+emb_scale: 1.0
+
+model:
+  d_model: 32          # small on purpose: exposes hyperbolic's low-dim tree-packing advantage
+  n_layers: 2
+  n_heads: 1
+  geodesic_output: true
+
+train:
+  steps: 2000
+  batch_size: 64
+  seq_len: 128
+  lr: 3.0e-3
+  device: cuda
+  log_every: 50

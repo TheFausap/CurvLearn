@@ -83,6 +83,44 @@ def trajectories(out, path):
     fig.tight_layout(); fig.savefig(path, dpi=200); plt.close(fig)
 
 
+def difficulty_plot(out, path):
+    """Close-bracket loss vs fixed kappa, one line per difficulty. Left: absolute (with
+    +/-1 std over seeds). Right: relative to kappa=0, the dip detector -- a curve that dives
+    below 0 at kappa<0 as difficulty grows means hyperbolic curvature is finally buying
+    something. Flat lines mean curvature is loss-neutral at that difficulty."""
+    recs = out["records"]
+    diffs = [d["name"] for d in out["spec"]["difficulties"]]
+    kappas = sorted(set(r["kappa"] for r in recs))
+    fig, (axL, axR) = plt.subplots(1, 2, figsize=(12, 4.4))
+    cmap = plt.get_cmap("viridis")
+    for di, name in enumerate(diffs):
+        mean, std = [], []
+        for kap in kappas:
+            vals = [r["close_loss"] for r in recs
+                    if r["difficulty"] == name and r["kappa"] == kap
+                    and np.isfinite(r["close_loss"])]
+            mean.append(np.mean(vals) if vals else np.nan)
+            std.append(np.std(vals) if len(vals) > 1 else 0.0)
+        mean, std = np.array(mean), np.array(std)
+        col = cmap(0.15 + 0.7 * di / max(1, len(diffs) - 1))
+        axL.plot(kappas, mean, "-o", color=col, label=name)
+        axL.fill_between(kappas, mean - std, mean + std, color=col, alpha=0.2)
+        z = kappas.index(0.0) if 0.0 in kappas else int(np.argmin(np.abs(kappas)))
+        rel = mean - mean[z]
+        axR.plot(kappas, rel, "-o", color=col, label=name)
+    for ax in (axL, axR):
+        ax.axvline(0, color="k", lw=0.6, ls=":")
+        ax.set_xlabel(r"fixed curvature $\kappa$")
+    axR.axhline(0, color="k", lw=0.6, ls=":")
+    axL.set_ylabel("close-bracket loss")
+    axR.set_ylabel(r"close-loss relative to $\kappa=0$")
+    axL.set_title("Absolute (mean $\\pm$ 1 std over seeds)")
+    axR.set_title("Relative to flat: below 0 at $\\kappa<0$ = hyperbolic helps")
+    axL.legend(title="difficulty"); axR.legend(title="difficulty")
+    fig.suptitle("Difficulty sweep: does curvature become loss-relevant as hierarchy deepens?")
+    fig.tight_layout(); fig.savefig(path, dpi=200); plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", default="results/designA_results.json")
