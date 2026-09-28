@@ -69,6 +69,11 @@ Editable install matters: it puts `curvlearn` on the import path for *subprocess
 of the working directory. (Without it, running a script under `tests/` fails with
 `ModuleNotFoundError: curvlearn` because only the script's own folder is on `sys.path`.)
 
+The Colab notebook enables `%autoreload 2`, so after a `git pull` the updated `curvlearn/*.py`
+is picked up on the next cell run without a kernel restart. In a plain IPython session that
+hasn't got autoreload, reload an updated module explicitly:
+`import importlib; from curvlearn import plot; importlib.reload(plot)`.
+
 A100 / Colab: open `notebooks/Design_A_flat_attractor.ipynb` and run top to bottom.
 
 ## Run Design A
