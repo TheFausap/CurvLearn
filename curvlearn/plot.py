@@ -38,6 +38,29 @@ def phase_diagram(out, path):
     fig.tight_layout(); fig.savefig(path, dpi=200); plt.close(fig)
 
 
+def loss_diagram(out, path):
+    """Final training loss over the grid. Answers: does the curvature kappa settles at
+    actually BUY anything, or is the loss flat in kappa (so the attractor is a shallow drift)?"""
+    k0, emb = _grids(out)
+    L = np.full((len(emb), len(k0)), np.nan)
+    for c in out["cells"]:
+        i, j = emb.index(c["emb_scale"]), k0.index(c["kappa_init"])
+        L[i, j] = c["final_loss"]
+    fig, ax = plt.subplots(figsize=(1.3 * len(k0) + 2, 1.1 * len(emb) + 2))
+    im = ax.imshow(L, cmap="viridis_r", aspect="auto", origin="lower")
+    ax.set_xticks(range(len(k0))); ax.set_xticklabels([f"{v:+.2g}" for v in k0])
+    ax.set_yticks(range(len(emb))); ax.set_yticklabels([f"{v:g}" for v in emb])
+    ax.set_xlabel(r"initial curvature $\kappa_0$"); ax.set_ylabel("embedding scale")
+    ax.set_title("Final training loss (lower = better)\n"
+                 "flat-in-$\\kappa$ => curvature is loss-neutral; a dip => a real optimum")
+    for i in range(len(emb)):
+        for j in range(len(k0)):
+            if np.isfinite(L[i, j]):
+                ax.text(j, i, f"{L[i,j]:.3f}", ha="center", va="center", color="w", fontsize=8)
+    fig.colorbar(im, ax=ax, label="final loss")
+    fig.tight_layout(); fig.savefig(path, dpi=200); plt.close(fig)
+
+
 def trajectories(out, path):
     k0, emb = _grids(out)
     fig, axes = plt.subplots(1, len(emb), figsize=(4.2 * len(emb), 3.4), sharey=True)
@@ -70,7 +93,8 @@ def main():
     os.makedirs(args.outdir, exist_ok=True)
     phase_diagram(out, os.path.join(args.outdir, "designA_phase_diagram.png"))
     trajectories(out, os.path.join(args.outdir, "designA_kappa_trajectories.png"))
-    print("wrote phase diagram + trajectory plots to", args.outdir)
+    loss_diagram(out, os.path.join(args.outdir, "designA_loss.png"))
+    print("wrote phase diagram + trajectory + loss plots to", args.outdir)
 
 
 if __name__ == "__main__":
