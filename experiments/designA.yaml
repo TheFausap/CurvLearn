@@ -1,0 +1,25 @@
+# Design A -- flat-attractor phase diagram.
+# Sweep initial curvature x embedding scale; kappa is FREE (learnable) in every cell.
+dataset:
+  name: dyck          # dyck | char
+  k: 3
+  max_depth: 12
+  # for char: name: char, path: data/input.txt
+
+kappa0_grid:  [-2.0, -1.0, -0.3, -0.1, 0.0, 0.1, 0.3, 1.0, 2.0]
+emb_scale_grid: [0.3, 1.0, 3.0]
+
+model:
+  d_model: 64
+  n_layers: 2
+  n_heads: 1
+  geodesic_output: true      # kappa enters attention AND the output likelihood
+
+train:
+  steps: 2000
+  batch_size: 64
+  seq_len: 128
+  lr: 3.0e-3
+  kappa_lr: 5.0e-2           # >> lr on purpose: the curvature gradient is tiny near flat
+  device: cuda
+  log_every: 25

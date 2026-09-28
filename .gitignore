@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+env/
+*.egg-info/
+# results: keep the folder, ignore generated artifacts
+results/*
+!results/.gitkeep
+*.pt
+*.ckpt
+.DS_Store
