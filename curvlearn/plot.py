@@ -208,20 +208,40 @@ def dim_sweep_plot(out, path):
              and r["kappa"] == kap and np.isfinite(r["close_loss"])]
         return np.mean(v) if v else np.nan
 
+    # representative curvature for the paired (per-seed) advantage: kappa closest to -0.5,
+    # which was consistently near-optimal. Per-seed pairing gives honest error bands and avoids
+    # the optimistic bias of picking the best kappa per point.
+    kref = min(neg_k, key=lambda k: abs(k + 0.5)) if neg_k else None
+
+    def paired_adv(dim, name):
+        seeds = sorted(set(r["seed"] for r in recs if r["dim"] == dim and r["difficulty"] == name))
+        out = []
+        for s in seeds:
+            f = [r["close_loss"] for r in recs if r["dim"] == dim and r["difficulty"] == name
+                 and r["kappa"] == 0.0 and r["seed"] == s]
+            n = [r["close_loss"] for r in recs if r["dim"] == dim and r["difficulty"] == name
+                 and r["kappa"] == kref and r["seed"] == s]
+            if f and n and np.isfinite(f[0]) and np.isfinite(n[0]):
+                out.append(n[0] - f[0])
+        return np.array(out)
+
     fig, (axL, axR) = plt.subplots(1, 2, figsize=(12, 4.4))
     cmap = plt.get_cmap("viridis")
     for di, name in enumerate(diffs):
         col = cmap(0.15 + 0.7 * di / max(1, len(diffs) - 1))
-        adv = []
+        m, sd = [], []
         for dim in dims:
-            flat = mean_close(dim, name, 0.0)
-            best_neg = np.nanmin([mean_close(dim, name, k) for k in neg_k]) if neg_k else np.nan
-            adv.append(best_neg - flat)
-        axL.plot(dims, adv, "-o", color=col, label=name)
+            a = paired_adv(dim, name)
+            m.append(a.mean() if a.size else np.nan)
+            sd.append(a.std() if a.size > 1 else 0.0)
+        m, sd = np.array(m), np.array(sd)
+        axL.plot(dims, m, "-o", color=col, label=name)
+        axL.fill_between(dims, m - sd, m + sd, color=col, alpha=0.2)
     axL.axhline(0, color="k", lw=0.6, ls=":")
     axL.set_xscale("log", base=2); axL.set_xticks(dims); axL.set_xticklabels(dims)
-    axL.set_xlabel("d_model"); axL.set_ylabel("hyperbolic advantage (best $\\kappa<0$ - $\\kappa=0$)")
-    axL.set_title("Below 0 = hyperbolic beats flat")
+    axL.set_xlabel("d_model")
+    axL.set_ylabel(f"hyperbolic advantage ($\\kappa={kref:+.1f}$ - $\\kappa=0$)")
+    axL.set_title("Below 0 = hyperbolic beats flat (mean $\\pm$ 1 std over seeds)")
     axL.legend(title="difficulty")
 
     dmin = dims[0]
