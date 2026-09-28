@@ -10,7 +10,7 @@ Usage:
     python -m curvlearn.sweep --steps 1500 --device cuda --out results/designA_results.json
 """
 from __future__ import annotations
-import argparse, json, os, time
+import argparse, json, math, os, time
 import yaml
 
 from .model import ModelConfig
@@ -50,9 +50,16 @@ def run_sweep(spec: dict, checkpoint_path: str | None = None, resume: bool = Tru
     if checkpoint_path and resume and os.path.exists(checkpoint_path):
         try:
             prev = json.load(open(checkpoint_path))
-            cells = prev.get("cells", [])
-            done = {(round(c["kappa_init"], 6), round(c["emb_scale"], 6)) for c in cells}
-            print(f"resuming: {len(done)} cells already done in {checkpoint_path}", flush=True)
+            # Keep only cells that actually SUCCEEDED. A diverged / NaN cell is not "done" --
+            # it must be retried (e.g. after a code fix), so drop it and let it recompute.
+            good = [c for c in prev.get("cells", [])
+                    if math.isfinite(c.get("kappa_final", float("nan")))
+                    and not c.get("diverged", False)]
+            dropped = len(prev.get("cells", [])) - len(good)
+            cells = good
+            done = {(round(c["kappa_init"], 6), round(c["emb_scale"], 6)) for c in good}
+            print(f"resuming: {len(done)} successful cells cached, "
+                  f"{dropped} failed/NaN cells will be recomputed", flush=True)
         except Exception as e:
             print(f"could not resume ({e}); starting fresh", flush=True)
 
