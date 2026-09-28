@@ -61,8 +61,13 @@ Design A is the falsifiable premise-check; only run B–D once A shows the basin
 ```bash
 git clone https://github.com/TheFausap/CurvLearn.git
 cd CurvLearn
-pip install -r requirements.txt          # torch, numpy, matplotlib, pyyaml
+pip install -e .                          # installs curvlearn + deps; importable everywhere
 ```
+
+Editable install matters: it puts `curvlearn` on the import path for *subprocesses* too, so
+`python tests/test_geometry.py` and `python -m curvlearn.sweep` resolve the package regardless
+of the working directory. (Without it, running a script under `tests/` fails with
+`ModuleNotFoundError: curvlearn` because only the script's own folder is on `sys.path`.)
 
 A100 / Colab: open `notebooks/Design_A_flat_attractor.ipynb` and run top to bottom.
 
