@@ -1,0 +1,22 @@
+# Design B: learn / schedule kappa in the crossover regime (gyro, small d matched to task).
+regimes:
+  - {name: medium, k: 3, max_depth: 25, dim: 4}
+  - {name: hard,   k: 5, max_depth: 50, dim: 8}
+
+seeds: 3
+emb_scale: 1.0
+attention_mode: gyro
+
+model:
+  n_layers: 2
+  n_heads: 1
+  geodesic_output: true
+
+train:
+  steps: 2000
+  batch_size: 64
+  seq_len: 128
+  lr: 3.0e-3
+  kappa_lr: 5.0e-2        # kappa's own (larger) LR -- the flat-attractor conditioning fix
+  device: cuda
+  log_every: 50

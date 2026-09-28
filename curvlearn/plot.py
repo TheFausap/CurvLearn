@@ -258,6 +258,56 @@ def dim_sweep_plot(out, path):
     fig.tight_layout(); fig.savefig(path, dpi=200); plt.close(fig)
 
 
+def design_b_plot(out, path):
+    """Left: eval close-loss per setting, grouped by regime (mean +/-1 std over seeds); the
+    flat bar is the Euclidean baseline, fixed_opt the oracle. Right: kappa trajectories (mean
+    over seeds) for the hard regime -- does learn_from_flat stall near 0 (flat attractor) while
+    anneal reaches -1 and learn_from_opt stays in the good basin?"""
+    recs = out["records"]
+    regimes = [r["name"] for r in out["spec"]["regimes"]]
+    order = ["flat", "fixed_opt", "learn_from_opt", "learn_from_flat", "anneal"]
+    setts = [s for s in order if any(r["setting"] == s for r in recs)]
+
+    def agg(regime, setting):
+        v = [r["close_loss"] for r in recs if r["regime"] == regime and r["setting"] == setting
+             and np.isfinite(r["close_loss"])]
+        return (np.mean(v), np.std(v) if len(v) > 1 else 0.0) if v else (np.nan, 0.0)
+
+    fig, (axL, axR) = plt.subplots(1, 2, figsize=(13, 4.6))
+    x = np.arange(len(setts)); w = 0.8 / max(1, len(regimes))
+    cmap = plt.get_cmap("viridis")
+    for ri, reg in enumerate(regimes):
+        col = cmap(0.15 + 0.7 * ri / max(1, len(regimes) - 1))
+        m = [agg(reg, s)[0] for s in setts]
+        e = [agg(reg, s)[1] for s in setts]
+        axL.bar(x + ri * w, m, w, yerr=e, capsize=3, color=col,
+                label=f"{reg} (d={[g['dim'] for g in out['spec']['regimes'] if g['name']==reg][0]})")
+        fl = agg(reg, "flat")[0]
+        axL.axhline(fl, color=col, lw=0.8, ls="--", alpha=0.6)
+    axL.set_xticks(x + w * (len(regimes) - 1) / 2)
+    axL.set_xticklabels(setts, rotation=20, ha="right")
+    axL.set_ylabel("eval close-bracket loss (lower = better)")
+    axL.set_title("Loss by setting (dashed = each regime's flat baseline)")
+    axL.legend(title="regime")
+
+    hard = [r for r in out["spec"]["regimes"] if r["name"] == "hard"]
+    tgt = "hard" if hard else regimes[-1]
+    for st in ["learn_from_opt", "learn_from_flat", "anneal"]:
+        rs = [r for r in recs if r["regime"] == tgt and r["setting"] == st]
+        if not rs:
+            continue
+        steps = rs[0]["step_traj"]
+        K = np.array([r["kappa_traj"] for r in rs if len(r["kappa_traj"]) == len(steps)])
+        if K.size:
+            axR.plot(steps, K.mean(0), lw=1.8, label=st)
+    axR.axhline(0, color="k", lw=0.6, ls=":")
+    axR.axhline(-0.5, color="green", lw=0.6, ls=":", alpha=0.6)
+    axR.set_xlabel("training step"); axR.set_ylabel(r"$\kappa$")
+    axR.set_title(f"Curvature trajectory ({tgt} regime)"); axR.legend()
+    fig.suptitle("Design B: can the model learn/schedule its way to the useful curvature?")
+    fig.tight_layout(); fig.savefig(path, dpi=200); plt.close(fig)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", default="results/designA_results.json")
