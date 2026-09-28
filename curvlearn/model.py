@@ -193,7 +193,8 @@ class ProductGyroLM(nn.Module):
     restores the plain linear head.
     """
 
-    def __init__(self, cfg: "ModelConfig", n_curv_factors=None, geodesic_output=None):
+    def __init__(self, cfg: "ModelConfig", n_curv_factors=None, geodesic_output=None,
+                 kappa_init_common=None):
         super().__init__()
         self.cfg = cfg
         nf = int(n_curv_factors or cfg.n_heads)
@@ -209,7 +210,14 @@ class ProductGyroLM(nn.Module):
         self.geodesic_output = bool(cfg.geodesic_output if geodesic_output is None else geodesic_output)
         self.tok = nn.Embedding(cfg.vocab_size, cfg.d_model)
         self.pos = nn.Embedding(cfg.max_len, cfg.d_model)
-        init = torch.tensor([-1.0]) if nf == 1 else torch.linspace(-1.5, -0.2, nf)
+        # Default init spreads the heads (linspace) -- but that lets a weak gradient merely
+        # preserve init ORDER. kappa_init_common initialises every head at the SAME value, so
+        # any spread that emerges is gradient-driven specialisation, not inherited order
+        # (the decisive control for "do heads specialise?").
+        if kappa_init_common is not None:
+            init = torch.full((nf,), float(kappa_init_common))
+        else:
+            init = torch.tensor([-1.0]) if nf == 1 else torch.linspace(-1.5, -0.2, nf)
         self.kappa = nn.Parameter(init)                              # per-factor curvature
         self.layers = nn.ModuleList()
         for _ in range(cfg.n_layers):

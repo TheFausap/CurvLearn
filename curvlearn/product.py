@@ -21,12 +21,13 @@ from .difficulty import eval_losses, _atomic_dump
 
 
 def train_one(vocab, data, dim, n_heads, nf, emb_scale, steps, bs, seq_len,
-              lr, kappa_lr, seed, device):
+              lr, kappa_lr, seed, device, kappa_init_common=None):
     torch.manual_seed(seed)
     cfg = ModelConfig(vocab_size=vocab, d_model=dim, n_heads=n_heads, n_layers=2,
                       emb_scale=emb_scale, max_len=max(256, seq_len),
                       geodesic_output=True)   # curvature-coupled readout (fixes the linear-head confound)
-    model = ProductGyroLM(cfg, n_curv_factors=nf, geodesic_output=True).to(device)
+    model = ProductGyroLM(cfg, n_curv_factors=nf, geodesic_output=True,
+                          kappa_init_common=kappa_init_common).to(device)
     kappa_params = [model.kappa]
     others = [p for n, p in model.named_parameters() if n != "kappa"]
     opt = torch.optim.AdamW([{"params": others, "lr": lr},
@@ -70,6 +71,7 @@ def run_product_sweep(spec, checkpoint_path=None, resume=True):
     factors = spec["factors"]
     n_seeds = spec["seeds"]
     emb = spec.get("emb_scale", 1.0)
+    kic = spec.get("kappa_init_common", None)   # None -> spread (linspace); float -> common init control
     tr = spec["train"]
     dev = tr.get("device", "cuda")
     dev = dev if (dev == "cpu" or torch.cuda.is_available()) else "cpu"
@@ -100,10 +102,12 @@ def run_product_sweep(spec, checkpoint_path=None, resume=True):
                 data = make_dataset("dyck", k=reg["k"], max_depth=reg["max_depth"], seed=seed)
                 model, kinfo = train_one(data.vocab_size, data, reg["dim"], reg["n_heads"], nf,
                                          emb, tr["steps"], tr["batch_size"], tr["seq_len"],
-                                         tr["lr"], tr["kappa_lr"], seed, dev)
+                                         tr["lr"], tr["kappa_lr"], seed, dev,
+                                         kappa_init_common=kic)
                 overall, close = eval_losses(model, data_eval, tr["seq_len"])
                 rec = {"regime": reg["name"], "dim": reg["dim"], "n_heads": reg["n_heads"],
                        "factor": factor, "seed": seed, "close_loss": close,
+                       "kappa_init_common": kic,
                        "overall_loss": overall, "kappa_final": kinfo["kappa_final"],
                        "kappa_traj": kinfo["kappa_traj"], "step_traj": kinfo["step_traj"]}
                 records.append(rec)
