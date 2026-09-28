@@ -45,10 +45,18 @@ def artan_k(x, k):
 
 
 def project(x, k):
-    """Project points into the kappa-stereographic domain (only binds for k<0)."""
+    """Keep points inside the k<0 ball (radius MAX_NORM_FRAC/sqrt|k|). No-op for k>=0.
+
+    Do NOT express the k>=0 case as ``torch.where(k<0, finite, inf)``: torch.where evaluates
+    BOTH branches in backward, so the unused ``sqrt(inf/n2)`` branch yields 0*inf = NaN
+    gradients on the whole k>=0 half. Branch on the scalar curvature instead -- there is no
+    ball to project onto when k>=0.
+    """
+    kk = k.reshape(())
+    if float(kk) >= 0.0:
+        return x
     n2 = x.pow(2).sum(-1, keepdim=True).clamp_min(EPS)
-    max_n2 = torch.where(k < 0, (MAX_NORM_FRAC ** 2) / k.abs().clamp_min(EPS),
-                         torch.full_like(k, float("inf")))
+    max_n2 = (MAX_NORM_FRAC ** 2) / kk.abs().clamp_min(EPS)
     scale = torch.where(n2 > max_n2, torch.sqrt(max_n2 / n2), torch.ones_like(n2))
     return x * scale
 

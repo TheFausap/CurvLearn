@@ -79,6 +79,15 @@ def test_self_distance_gradient_finite():
         assert torch.isfinite(x.grad).all(), (kval, x.grad)
 
 
+def test_expmap_gradient_finite_all_curvatures():
+    # exp_0 runs project(); a torch.where(...,inf) there used to NaN the gradient for k>=0.
+    # Check finite grads across hyperbolic, flat, and spherical curvatures.
+    for kval in (-2.0, -1.0, -0.1, 0.0, 0.1, 0.5, 2.0):
+        x = (torch.randn(3, 4) * 0.3).requires_grad_(True)
+        G.expmap0(x, torch.tensor(kval)).pow(2).sum().backward()
+        assert torch.isfinite(x.grad).all(), (kval, x.grad)
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
